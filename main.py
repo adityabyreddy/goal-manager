@@ -4,6 +4,7 @@ import sqlite3
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Optional
 
 from fastapi import FastAPI, Form, HTTPException, Request, status
@@ -440,15 +441,15 @@ def create_app(database_path: Optional[Path] = None) -> FastAPI:
                     priority=priority,
                 )
             except ValidationError as exc:
-                draft_goal = {
-                    "id": existing_goal.id,
-                    "title": title,
-                    "description": description,
-                    "labels": parse_labels(labels),
-                    "start_date": start_date,
-                    "end_date": end_date,
-                    "priority": priority,
-                }
+                draft_goal = SimpleNamespace(
+                    id=existing_goal.id,
+                    title=title,
+                    description=description,
+                    labels=parse_labels(labels),
+                    start_date=start_date,
+                    end_date=end_date,
+                    priority=priority,
+                )
                 return TEMPLATES.TemplateResponse(
                     request,
                     "goal_form.html",
