@@ -3,6 +3,7 @@ import sqlite3
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
 
 from fastapi import FastAPI, HTTPException, status
 from pydantic import BaseModel
@@ -34,7 +35,7 @@ def get_db_path() -> Path:
     return Path(os.environ.get("GOAL_MANAGER_DB_PATH", DEFAULT_DB_PATH))
 
 
-def resolve_db_path(database_path: Path | None = None) -> Path:
+def resolve_db_path(database_path: Optional[Path] = None) -> Path:
     return Path(database_path or get_db_path())
 
 
@@ -163,7 +164,7 @@ def write_user(
         raise_for_integrity_error(exc)
 
 
-def create_app(database_path: Path | None = None) -> FastAPI:
+def create_app(database_path: Optional[Path] = None) -> FastAPI:
     resolved_db_path = resolve_db_path(database_path)
 
     @asynccontextmanager
@@ -219,6 +220,7 @@ def create_app(database_path: Path | None = None) -> FastAPI:
     @app.put("/users/{user_id}", response_model=User)
     def update_user(user_id: int, payload: UserUpdate) -> User:
         with open_connection() as connection:
+            get_user_or_404(connection, user_id)
             cursor = write_user(
                 connection,
                 """

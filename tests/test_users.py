@@ -19,6 +19,11 @@ class UserApiTests(unittest.TestCase):
         self.client.__exit__(None, None, None)
         self.temp_dir.cleanup()
 
+    def test_healthcheck(self) -> None:
+        response = self.client.get("/health")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"status": "ok"})
+
     def test_create_get_list_update_and_delete_user(self) -> None:
         created = self.client.post(
             "/users", json={"name": "Ada Lovelace", "email": "ada@example.com"}
