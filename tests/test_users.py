@@ -118,7 +118,7 @@ class UserApiTests(unittest.TestCase):
         )
         self.assertEqual(created.status_code, 201)
 
-        with patch.object(main, "write_user", return_value=Mock(rowcount=0)):
+        with patch.object(main, "execute_write", return_value=Mock(rowcount=0)):
             response = self.client.put(
                 f"/users/{created.json()['id']}",
                 json={"name": "Transient User", "email": "transient@example.com"},

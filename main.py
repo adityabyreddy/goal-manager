@@ -252,7 +252,7 @@ def raise_for_integrity_error(exc: sqlite3.IntegrityError) -> None:
     ) from exc
 
 
-def write_user(
+def execute_write(
     connection: sqlite3.Connection, query: str, parameters: tuple[object, ...]
 ) -> sqlite3.Cursor:
     try:
@@ -356,11 +356,11 @@ def create_app(database_path: Optional[Path] = None) -> FastAPI:
                         "goal": None,
                         "error": str(exc.errors()[0]["msg"]),
                     },
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 )
 
             timestamp = datetime.now(timezone.utc).isoformat()
-            cursor = write_user(
+            cursor = execute_write(
                 connection,
                 """
                 INSERT INTO goals (
@@ -383,7 +383,13 @@ def create_app(database_path: Optional[Path] = None) -> FastAPI:
             )
             connection.commit()
             return RedirectResponse(
-                url=f"/ui/users/{user_id}/goals/{cursor.lastrowid}",
+                url=str(
+                    request.url_for(
+                        "view_goal_page",
+                        user_id=str(user_id),
+                        goal_id=str(cursor.lastrowid),
+                    )
+                ),
                 status_code=status.HTTP_303_SEE_OTHER,
             )
 
@@ -442,10 +448,10 @@ def create_app(database_path: Optional[Path] = None) -> FastAPI:
                         "goal": existing_goal,
                         "error": str(exc.errors()[0]["msg"]),
                     },
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 )
 
-            cursor = write_user(
+            cursor = execute_write(
                 connection,
                 """
                 UPDATE goals
@@ -472,7 +478,13 @@ def create_app(database_path: Optional[Path] = None) -> FastAPI:
                 )
             connection.commit()
             return RedirectResponse(
-                url=f"/ui/users/{user_id}/goals/{goal_id}",
+                url=str(
+                    request.url_for(
+                        "view_goal_page",
+                        user_id=str(user_id),
+                        goal_id=str(goal_id),
+                    )
+                ),
                 status_code=status.HTTP_303_SEE_OTHER,
             )
 
@@ -481,7 +493,7 @@ def create_app(database_path: Optional[Path] = None) -> FastAPI:
     def create_user(payload: UserCreate) -> User:
         timestamp = datetime.now(timezone.utc).isoformat()
         with open_connection() as connection:
-            cursor = write_user(
+            cursor = execute_write(
                 connection,
                 """
                 INSERT INTO users (name, email, created_at, updated_at)
@@ -515,7 +527,7 @@ def create_app(database_path: Optional[Path] = None) -> FastAPI:
     @app.put("/users/{user_id}", response_model=User)
     def update_user(user_id: int, payload: UserUpdate) -> User:
         with open_connection() as connection:
-            cursor = write_user(
+            cursor = execute_write(
                 connection,
                 """
                 UPDATE users
@@ -554,7 +566,7 @@ def create_app(database_path: Optional[Path] = None) -> FastAPI:
         timestamp = datetime.now(timezone.utc).isoformat()
         with open_connection() as connection:
             get_user_or_404(connection, user_id)
-            cursor = write_user(
+            cursor = execute_write(
                 connection,
                 """
                 INSERT INTO goals (
@@ -604,7 +616,7 @@ def create_app(database_path: Optional[Path] = None) -> FastAPI:
     def update_goal(user_id: int, goal_id: int, payload: GoalUpdate) -> Goal:
         with open_connection() as connection:
             get_user_or_404(connection, user_id)
-            cursor = write_user(
+            cursor = execute_write(
                 connection,
                 """
                 UPDATE goals

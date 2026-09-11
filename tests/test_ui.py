@@ -78,7 +78,7 @@ class GoalUiTests(unittest.TestCase):
         )
         self.assertEqual(submit.status_code, 303)
         detail_path = submit.headers["location"]
-        self.assertTrue(detail_path.startswith(f"/ui/users/{user_id}/goals/"))
+        self.assertIn(f"/ui/users/{user_id}/goals/", detail_path)
 
         detail = self.client.get(detail_path)
         self.assertEqual(detail.status_code, 200)
@@ -118,12 +118,62 @@ class GoalUiTests(unittest.TestCase):
             follow_redirects=False,
         )
         self.assertEqual(updated.status_code, 303)
-        self.assertEqual(updated.headers["location"], f"/ui/users/{user_id}/goals/{goal_id}")
+        self.assertTrue(
+            updated.headers["location"].endswith(f"/ui/users/{user_id}/goals/{goal_id}")
+        )
 
         detail = self.client.get(updated.headers["location"])
         self.assertEqual(detail.status_code, 200)
         self.assertIn("After update", detail.text)
         self.assertIn("edit, done", detail.text)
+
+    def test_create_goal_submission_shows_validation_error(self) -> None:
+        user_id = self._create_user(name="Invalid Creator", email="invalid-creator@example.com")
+        response = self.client.post(
+            f"/ui/users/{user_id}/goals/new",
+            data={
+                "title": "Bad date range",
+                "description": "should fail",
+                "labels": "ui",
+                "start_date": "2026-09-20",
+                "end_date": "2026-09-11",
+                "priority": "high",
+            },
+        )
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("end_date must be on or after start_date", response.text)
+        self.assertIn("Create goal for Invalid Creator", response.text)
+
+    def test_edit_goal_submission_shows_validation_error(self) -> None:
+        user_id = self._create_user(name="Invalid Editor", email="invalid-editor@example.com")
+        created = self.client.post(
+            f"/users/{user_id}/goals",
+            json={
+                "title": "Stable goal",
+                "description": "original",
+                "labels": ["stable"],
+                "start_date": "2026-09-11",
+                "end_date": "2026-09-12",
+                "priority": "medium",
+            },
+        )
+        self.assertEqual(created.status_code, 201)
+        goal_id = created.json()["id"]
+
+        response = self.client.post(
+            f"/ui/users/{user_id}/goals/{goal_id}/edit",
+            data={
+                "title": "Stable goal",
+                "description": "edited",
+                "labels": "stable",
+                "start_date": "2026-09-20",
+                "end_date": "2026-09-11",
+                "priority": "medium",
+            },
+        )
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("end_date must be on or after start_date", response.text)
+        self.assertIn("Edit goal for Invalid Editor", response.text)
 
 
 if __name__ == "__main__":
