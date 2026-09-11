@@ -230,7 +230,7 @@ def delete_user(user_id: int) -> None:
 
 
 def main() -> None:
-    print("Run the FastAPI app with: fastapi dev /home/runner/work/goal-manager/goal-manager/main.py")
+    print("Run the FastAPI app with: fastapi dev main.py")
 
 
 if __name__ == "__main__":
