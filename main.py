@@ -36,10 +36,13 @@ def get_db_path() -> Path:
 
 
 def resolve_db_path(database_path: Optional[Path] = None) -> Path:
-    return Path(database_path or get_db_path())
+    if database_path is not None:
+        return Path(database_path)
+    return get_db_path()
 
 
 def get_connection(database_path: Path) -> sqlite3.Connection:
+    database_path.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(database_path)
     connection.row_factory = sqlite3.Row
     return connection

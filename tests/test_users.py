@@ -2,6 +2,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import Mock, patch
 
 from fastapi.testclient import TestClient
 
@@ -110,6 +111,21 @@ class UserApiTests(unittest.TestCase):
         missing_delete = self.client.delete("/users/999")
         self.assertEqual(missing_delete.status_code, 404)
         self.assertEqual(missing_delete.json(), {"detail": "User not found"})
+
+    def test_update_returns_404_when_row_is_removed_before_commit(self) -> None:
+        created = self.client.post(
+            "/users", json={"name": "Transient User", "email": "transient@example.com"}
+        )
+        self.assertEqual(created.status_code, 201)
+
+        with patch.object(main, "write_user", return_value=Mock(rowcount=0)):
+            response = self.client.put(
+                f"/users/{created.json()['id']}",
+                json={"name": "Transient User", "email": "transient@example.com"},
+            )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json(), {"detail": "User not found"})
 
 
 if __name__ == "__main__":
