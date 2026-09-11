@@ -127,6 +127,214 @@ class UserApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.json(), {"detail": "User not found"})
 
+    def test_create_get_list_update_and_delete_goal_scoped_to_user(self) -> None:
+        first_user = self.client.post(
+            "/users", json={"name": "Goal Owner", "email": "owner@example.com"}
+        )
+        second_user = self.client.post(
+            "/users", json={"name": "Other User", "email": "other@example.com"}
+        )
+        self.assertEqual(first_user.status_code, 201)
+        self.assertEqual(second_user.status_code, 201)
+
+        first_user_id = first_user.json()["id"]
+        second_user_id = second_user.json()["id"]
+        payload = {
+            "title": "Ship goal CRUD",
+            "description": "Implement user-scoped goal APIs",
+            "labels": ["backend", "api"],
+            "start_date": "2026-09-11",
+            "end_date": "2026-09-30",
+            "priority": "high",
+        }
+        created = self.client.post(f"/users/{first_user_id}/goals", json=payload)
+        self.assertEqual(created.status_code, 201)
+        created_body = created.json()
+        self.assertEqual(created_body["user_id"], first_user_id)
+        self.assertEqual(created_body["labels"], ["backend", "api"])
+        self.assertEqual(created_body["priority"], "high")
+
+        goal_id = created_body["id"]
+        listed = self.client.get(f"/users/{first_user_id}/goals")
+        self.assertEqual(listed.status_code, 200)
+        self.assertEqual(len(listed.json()), 1)
+        self.assertEqual(listed.json()[0]["id"], goal_id)
+
+        fetched = self.client.get(f"/users/{first_user_id}/goals/{goal_id}")
+        self.assertEqual(fetched.status_code, 200)
+        self.assertEqual(fetched.json()["title"], "Ship goal CRUD")
+
+        hidden = self.client.get(f"/users/{second_user_id}/goals/{goal_id}")
+        self.assertEqual(hidden.status_code, 404)
+        self.assertEqual(hidden.json(), {"detail": "Goal not found"})
+
+        updated = self.client.put(
+            f"/users/{first_user_id}/goals/{goal_id}",
+            json={
+                "title": "Ship goal APIs",
+                "description": "Implement and verify goal CRUD",
+                "labels": ["backend", "verified"],
+                "start_date": "2026-09-12",
+                "end_date": "2026-10-01",
+                "priority": "medium",
+            },
+        )
+        self.assertEqual(updated.status_code, 200)
+        updated_body = updated.json()
+        self.assertEqual(updated_body["title"], "Ship goal APIs")
+        self.assertEqual(updated_body["labels"], ["backend", "verified"])
+        self.assertEqual(updated_body["priority"], "medium")
+        self.assertNotEqual(updated_body["updated_at"], created_body["updated_at"])
+
+        deleted = self.client.delete(f"/users/{first_user_id}/goals/{goal_id}")
+        self.assertEqual(deleted.status_code, 204)
+
+        missing = self.client.get(f"/users/{first_user_id}/goals/{goal_id}")
+        self.assertEqual(missing.status_code, 404)
+        self.assertEqual(missing.json(), {"detail": "Goal not found"})
+
+    def test_goal_endpoints_require_existing_user(self) -> None:
+        owner = self.client.post(
+            "/users", json={"name": "Present User", "email": "present@example.com"}
+        )
+        self.assertEqual(owner.status_code, 201)
+
+        payload = {
+            "title": "Missing parent",
+            "description": "Should fail",
+            "labels": ["missing"],
+            "start_date": "2026-09-11",
+            "end_date": "2026-09-12",
+            "priority": "low",
+        }
+
+        created = self.client.post("/users/999/goals", json=payload)
+        self.assertEqual(created.status_code, 404)
+        self.assertEqual(created.json(), {"detail": "User not found"})
+
+        listed = self.client.get("/users/999/goals")
+        self.assertEqual(listed.status_code, 404)
+        self.assertEqual(listed.json(), {"detail": "User not found"})
+
+        goal = self.client.post(f"/users/{owner.json()['id']}/goals", json=payload)
+        self.assertEqual(goal.status_code, 201)
+        goal_id = goal.json()["id"]
+
+        fetched = self.client.get(f"/users/999/goals/{goal_id}")
+        self.assertEqual(fetched.status_code, 404)
+        self.assertEqual(fetched.json(), {"detail": "User not found"})
+
+        updated = self.client.put(f"/users/999/goals/{goal_id}", json=payload)
+        self.assertEqual(updated.status_code, 404)
+        self.assertEqual(updated.json(), {"detail": "User not found"})
+
+        deleted = self.client.delete(f"/users/999/goals/{goal_id}")
+        self.assertEqual(deleted.status_code, 404)
+        self.assertEqual(deleted.json(), {"detail": "User not found"})
+
+    def test_update_and_delete_goal_return_404_for_missing_or_wrong_user(self) -> None:
+        owner = self.client.post("/users", json={"name": "Owner", "email": "owner2@example.com"})
+        other = self.client.post("/users", json={"name": "Other", "email": "other2@example.com"})
+        self.assertEqual(owner.status_code, 201)
+        self.assertEqual(other.status_code, 201)
+
+        goal = self.client.post(
+            f"/users/{owner.json()['id']}/goals",
+            json={
+                "title": "Scoped goal",
+                "description": "Keep hidden",
+                "labels": ["private"],
+                "start_date": "2026-09-11",
+                "end_date": "2026-09-12",
+                "priority": "high",
+            },
+        )
+        self.assertEqual(goal.status_code, 201)
+        goal_id = goal.json()["id"]
+
+        wrong_user_update = self.client.put(
+            f"/users/{other.json()['id']}/goals/{goal_id}",
+            json={
+                "title": "Scoped goal",
+                "description": "Keep hidden",
+                "labels": ["private"],
+                "start_date": "2026-09-11",
+                "end_date": "2026-09-12",
+                "priority": "high",
+            },
+        )
+        self.assertEqual(wrong_user_update.status_code, 404)
+        self.assertEqual(wrong_user_update.json(), {"detail": "Goal not found"})
+
+        missing_delete = self.client.delete(f"/users/{owner.json()['id']}/goals/999")
+        self.assertEqual(missing_delete.status_code, 404)
+        self.assertEqual(missing_delete.json(), {"detail": "Goal not found"})
+
+    def test_goal_rejects_invalid_date_range(self) -> None:
+        owner = self.client.post(
+            "/users", json={"name": "Date Owner", "email": "dates@example.com"}
+        )
+        self.assertEqual(owner.status_code, 201)
+
+        payload = {
+            "title": "Invalid dates",
+            "description": "End date is before start date",
+            "labels": ["invalid"],
+            "start_date": "2026-09-12",
+            "end_date": "2026-09-11",
+            "priority": "low",
+        }
+
+        created = self.client.post(f"/users/{owner.json()['id']}/goals", json=payload)
+        self.assertEqual(created.status_code, 422)
+
+        valid = self.client.post(
+            f"/users/{owner.json()['id']}/goals",
+            json={**payload, "end_date": "2026-09-12"},
+        )
+        self.assertEqual(valid.status_code, 201)
+
+        updated = self.client.put(
+            f"/users/{owner.json()['id']}/goals/{valid.json()['id']}",
+            json=payload,
+        )
+        self.assertEqual(updated.status_code, 422)
+
+    def test_get_goal_returns_controlled_error_for_malformed_labels(self) -> None:
+        owner = self.client.post(
+            "/users", json={"name": "Label Owner", "email": "labels@example.com"}
+        )
+        self.assertEqual(owner.status_code, 201)
+        user_id = owner.json()["id"]
+
+        with main.get_connection(Path(self.db_path)) as connection:
+            timestamp = "2026-09-11T00:00:00+00:00"
+            connection.execute(
+                """
+                INSERT INTO goals (
+                    user_id, title, description, labels, start_date, end_date, priority,
+                    created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    user_id,
+                    "Broken labels",
+                    "Stored incorrectly",
+                    "not-json",
+                    "2026-09-11",
+                    "2026-09-12",
+                    "low",
+                    timestamp,
+                    timestamp,
+                ),
+            )
+            connection.commit()
+
+        response = self.client.get(f"/users/{user_id}/goals/1")
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.json(), {"detail": "Stored goal data is invalid"})
+
 
 if __name__ == "__main__":
     unittest.main()
