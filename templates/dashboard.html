@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Dashboard · Goal Manager{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class="h3 mb-0">Goals Dashboard</h1>
+</div>
+
+{% if users %}
+  <div class="gh-card mb-4">
+    <div class="gh-header px-3 py-2 fw-semibold">Create Goal</div>
+    <div class="p-3 d-flex flex-wrap gap-2">
+      {% for user in users %}
+      <a class="btn btn-sm btn-outline-primary" href="{{ request.url_for('create_goal_page', user_id=user.id) }}">New goal for {{ user.name }}</a>
+      {% endfor %}
+    </div>
+  </div>
+{% endif %}
+
+<div class="gh-card">
+  <div class="gh-header px-3 py-2 fw-semibold">All Goals</div>
+  <div class="table-responsive">
+    <table class="table table-hover mb-0">
+      <thead>
+        <tr>
+          <th scope="col">Goal</th>
+          <th scope="col">User</th>
+          <th scope="col">Priority</th>
+          <th scope="col">Dates</th>
+          <th scope="col">Status</th>
+          <th scope="col">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in goals %}
+          {% set goal = item.goal %}
+          {% set status = goal_status(goal) %}
+          <tr>
+            <td class="fw-semibold">{{ goal.title }}</td>
+            <td>{{ item.user_name }}</td>
+            <td class="text-capitalize">{{ goal.priority }}</td>
+            <td>{{ goal.start_date }} → {{ goal.end_date }}</td>
+            <td>
+              {% if status == "Overdue" %}
+                <span class="badge text-bg-danger">{{ status }}</span>
+              {% elif status == "In Progress" %}
+                <span class="badge text-bg-success">{{ status }}</span>
+              {% else %}
+                <span class="badge text-bg-secondary">{{ status }}</span>
+              {% endif %}
+            </td>
+            <td class="text-end">
+              <a class="btn btn-sm btn-outline-secondary" href="{{ request.url_for('view_goal_page', user_id=goal.user_id, goal_id=goal.id) }}">View</a>
+              <a class="btn btn-sm btn-outline-primary" href="{{ request.url_for('update_goal_page', user_id=goal.user_id, goal_id=goal.id) }}">Edit</a>
+            </td>
+          </tr>
+        {% else %}
+          <tr><td colspan="6" class="text-center py-4 text-muted">No goals yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
