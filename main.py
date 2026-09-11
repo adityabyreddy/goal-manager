@@ -440,12 +440,21 @@ def create_app(database_path: Optional[Path] = None) -> FastAPI:
                     priority=priority,
                 )
             except ValidationError as exc:
+                draft_goal = {
+                    "id": existing_goal.id,
+                    "title": title,
+                    "description": description,
+                    "labels": parse_labels(labels),
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "priority": priority,
+                }
                 return TEMPLATES.TemplateResponse(
                     request,
                     "goal_form.html",
                     {
                         "user": user,
-                        "goal": existing_goal,
+                        "goal": draft_goal,
                         "error": str(exc.errors()[0]["msg"]),
                     },
                     status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,

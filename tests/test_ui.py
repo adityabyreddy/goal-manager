@@ -174,6 +174,7 @@ class GoalUiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 422)
         self.assertIn("end_date must be on or after start_date", response.text)
         self.assertIn("Edit goal for Invalid Editor", response.text)
+        self.assertIn("edited", response.text)
 
 
 if __name__ == "__main__":
