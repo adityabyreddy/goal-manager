@@ -10,7 +10,7 @@
     <div class="gh-header px-3 py-2 fw-semibold">Create Goal</div>
     <div class="p-3 d-flex flex-wrap gap-2">
       {% for user in users %}
-        <a class="btn btn-sm btn-outline-primary" href="/ui/users/{{ user.id }}/goals/new">New goal for {{ user.name }}</a>
+      <a class="btn btn-sm btn-outline-primary" href="{{ request.url_for('create_goal_page', user_id=user.id) }}">New goal for {{ user.name }}</a>
       {% endfor %}
     </div>
   </div>
@@ -49,8 +49,8 @@
               {% endif %}
             </td>
             <td class="text-end">
-              <a class="btn btn-sm btn-outline-secondary" href="/ui/users/{{ goal.user_id }}/goals/{{ goal.id }}">View</a>
-              <a class="btn btn-sm btn-outline-primary" href="/ui/users/{{ goal.user_id }}/goals/{{ goal.id }}/edit">Edit</a>
+              <a class="btn btn-sm btn-outline-secondary" href="{{ request.url_for('view_goal_page', user_id=goal.user_id, goal_id=goal.id) }}">View</a>
+              <a class="btn btn-sm btn-outline-primary" href="{{ request.url_for('update_goal_page', user_id=goal.user_id, goal_id=goal.id) }}">Edit</a>
             </td>
           </tr>
         {% else %}

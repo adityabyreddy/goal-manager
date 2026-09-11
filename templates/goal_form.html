@@ -9,7 +9,7 @@
     {% if error %}
       <div class="alert alert-danger">{{ error }}</div>
     {% endif %}
-    <form method="post" action="{% if goal %}/ui/users/{{ user.id }}/goals/{{ goal.id }}/edit{% else %}/ui/users/{{ user.id }}/goals/new{% endif %}">
+    <form method="post" action="{% if goal %}{{ request.url_for('update_goal_action', user_id=user.id, goal_id=goal.id) }}{% else %}{{ request.url_for('create_goal_action', user_id=user.id) }}{% endif %}">
       <div class="mb-3">
         <label class="form-label" for="goal-title">Title</label>
         <input id="goal-title" class="form-control" name="title" required value="{{ goal.title if goal else '' }}" />
@@ -42,7 +42,7 @@
         </div>
       </div>
       <button type="submit" class="btn btn-primary">{% if goal %}Update{% else %}Create{% endif %} goal</button>
-      <a href="/ui/dashboard" class="btn btn-link">Cancel</a>
+      <a href="{{ request.url_for('dashboard') }}" class="btn btn-link">Cancel</a>
     </form>
   </div>
 </div>
