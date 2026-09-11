@@ -62,6 +62,22 @@ class UserApiTests(unittest.TestCase):
         )
         self.assertEqual(duplicate.status_code, 409)
 
+    def test_update_user_rejects_duplicate_email(self) -> None:
+        first = self.client.post(
+            "/users", json={"name": "User One", "email": "one@example.com"}
+        )
+        second = self.client.post(
+            "/users", json={"name": "User Two", "email": "two@example.com"}
+        )
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(second.status_code, 201)
+
+        duplicate_update = self.client.put(
+            f"/users/{second.json()['id']}",
+            json={"name": "User Two", "email": "one@example.com"},
+        )
+        self.assertEqual(duplicate_update.status_code, 409)
+
 
 if __name__ == "__main__":
     unittest.main()

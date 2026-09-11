@@ -139,10 +139,11 @@ def get_user_or_404(connection: sqlite3.Connection, user_id: int) -> sqlite3.Row
 
 def write_user(
     connection: sqlite3.Connection, query: str, parameters: tuple[object, ...]
-) -> None:
+) -> sqlite3.Cursor:
     try:
-        connection.execute(query, parameters)
+        cursor = connection.execute(query, parameters)
         connection.commit()
+        return cursor
     except sqlite3.IntegrityError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -168,20 +169,14 @@ def healthcheck() -> dict[str, str]:
 def create_user(payload: UserCreate) -> User:
     timestamp = datetime.now(timezone.utc).isoformat()
     with get_connection() as connection:
-        try:
-            cursor = connection.execute(
-                """
-                INSERT INTO users (name, email, created_at, updated_at)
-                VALUES (?, ?, ?, ?)
-                """,
-                (payload.name, payload.email, timestamp, timestamp),
-            )
-            connection.commit()
-        except sqlite3.IntegrityError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="A user with this email already exists",
-            ) from exc
+        cursor = write_user(
+            connection,
+            """
+            INSERT INTO users (name, email, created_at, updated_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (payload.name, payload.email, timestamp, timestamp),
+        )
         return row_to_user(get_user_or_404(connection, cursor.lastrowid))
 
 
