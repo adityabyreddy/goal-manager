@@ -11,6 +11,7 @@ from pydantic import BaseModel
 BASE_DIR = Path(__file__).resolve().parent
 DEFAULT_DB_PATH = BASE_DIR / "goal_manager.db"
 CHANGELOG_PATH = BASE_DIR / "migrations" / "db.changelog.sql"
+CHANGELOG_FILENAME = "migrations/db.changelog.sql"
 
 
 class UserCreate(BaseModel):
@@ -89,13 +90,12 @@ def apply_migrations() -> None:
                 "SELECT author, id, filename FROM databasechangelog"
             )
         }
-        filename = str(CHANGELOG_PATH.relative_to(BASE_DIR))
         next_order = connection.execute(
             "SELECT COALESCE(MAX(orderexecuted), 0) FROM databasechangelog"
         ).fetchone()[0]
 
         for author, change_id, sql in parse_changesets(CHANGELOG_PATH):
-            key = (author, change_id, filename)
+            key = (author, change_id, CHANGELOG_FILENAME)
             if key in applied_changes or not sql:
                 continue
 
@@ -110,7 +110,7 @@ def apply_migrations() -> None:
                 (
                     change_id,
                     author,
-                    filename,
+                    CHANGELOG_FILENAME,
                     datetime.now(timezone.utc).isoformat(),
                     next_order,
                     "EXECUTED",
@@ -145,9 +145,15 @@ def write_user(
         connection.commit()
         return cursor
     except sqlite3.IntegrityError as exc:
+        detail = str(exc)
+        if "UNIQUE constraint failed: users.email" in detail:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="A user with this email already exists",
+            ) from exc
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="A user with this email already exists",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User data violates database constraints",
         ) from exc
 
 

@@ -43,7 +43,14 @@ class UserApiTests(unittest.TestCase):
             json={"name": "Ada Byron", "email": "ada.byron@example.com"},
         )
         self.assertEqual(updated.status_code, 200)
-        self.assertEqual(updated.json()["name"], "Ada Byron")
+        updated_body = updated.json()
+        self.assertEqual(updated_body["name"], "Ada Byron")
+        self.assertEqual(updated_body["email"], "ada.byron@example.com")
+        self.assertNotEqual(updated_body["updated_at"], created_body["updated_at"])
+
+        refetched = self.client.get(f"/users/{user_id}")
+        self.assertEqual(refetched.status_code, 200)
+        self.assertEqual(refetched.json()["email"], "ada.byron@example.com")
 
         deleted = self.client.delete(f"/users/{user_id}")
         self.assertEqual(deleted.status_code, 204)
@@ -61,6 +68,9 @@ class UserApiTests(unittest.TestCase):
             "/users", json={"name": "Rear Admiral Grace Hopper", "email": "grace@example.com"}
         )
         self.assertEqual(duplicate.status_code, 409)
+        self.assertEqual(
+            duplicate.json(), {"detail": "A user with this email already exists"}
+        )
 
     def test_update_user_rejects_duplicate_email(self) -> None:
         first = self.client.post(
@@ -77,6 +87,9 @@ class UserApiTests(unittest.TestCase):
             json={"name": "User Two", "email": "one@example.com"},
         )
         self.assertEqual(duplicate_update.status_code, 409)
+        self.assertEqual(
+            duplicate_update.json(), {"detail": "A user with this email already exists"}
+        )
 
 
 if __name__ == "__main__":
