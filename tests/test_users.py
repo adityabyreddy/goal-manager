@@ -1,6 +1,7 @@
 import os
 import tempfile
 import unittest
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -11,13 +12,11 @@ class UserApiTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
         self.db_path = os.path.join(self.temp_dir.name, "test.db")
-        os.environ["GOAL_MANAGER_DB_PATH"] = self.db_path
-        self.client = TestClient(main.app)
+        self.client = TestClient(main.create_app(Path(self.db_path)))
         self.client.__enter__()
 
     def tearDown(self) -> None:
         self.client.__exit__(None, None, None)
-        os.environ.pop("GOAL_MANAGER_DB_PATH", None)
         self.temp_dir.cleanup()
 
     def test_create_get_list_update_and_delete_user(self) -> None:
@@ -54,6 +53,10 @@ class UserApiTests(unittest.TestCase):
 
         deleted = self.client.delete(f"/users/{user_id}")
         self.assertEqual(deleted.status_code, 204)
+
+        listed_after_delete = self.client.get("/users")
+        self.assertEqual(listed_after_delete.status_code, 200)
+        self.assertEqual(listed_after_delete.json(), [])
 
         missing = self.client.get(f"/users/{user_id}")
         self.assertEqual(missing.status_code, 404)

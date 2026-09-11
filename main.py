@@ -34,8 +34,12 @@ def get_db_path() -> Path:
     return Path(os.environ.get("GOAL_MANAGER_DB_PATH", DEFAULT_DB_PATH))
 
 
-def get_connection() -> sqlite3.Connection:
-    connection = sqlite3.connect(get_db_path())
+def resolve_db_path(database_path: Path | None = None) -> Path:
+    return Path(database_path or get_db_path())
+
+
+def get_connection(database_path: Path) -> sqlite3.Connection:
+    connection = sqlite3.connect(database_path)
     connection.row_factory = sqlite3.Row
     return connection
 
@@ -69,8 +73,8 @@ def parse_changesets(changelog_path: Path) -> list[tuple[str, str, str]]:
     return changesets
 
 
-def apply_migrations() -> None:
-    with get_connection() as connection:
+def apply_migrations(database_path: Path) -> None:
+    with get_connection(database_path) as connection:
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS databasechangelog (
@@ -137,98 +141,122 @@ def get_user_or_404(connection: sqlite3.Connection, user_id: int) -> sqlite3.Row
     return row
 
 
+def raise_for_integrity_error(exc: sqlite3.IntegrityError) -> None:
+    detail = str(exc)
+    if "UNIQUE constraint failed: users.email" in detail:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A user with this email already exists",
+        ) from exc
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="User data violates database constraints",
+    ) from exc
+
+
 def write_user(
     connection: sqlite3.Connection, query: str, parameters: tuple[object, ...]
 ) -> sqlite3.Cursor:
     try:
-        cursor = connection.execute(query, parameters)
-        connection.commit()
-        return cursor
+        return connection.execute(query, parameters)
     except sqlite3.IntegrityError as exc:
-        detail = str(exc)
-        if "UNIQUE constraint failed: users.email" in detail:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="A user with this email already exists",
-            ) from exc
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="User data violates database constraints",
-        ) from exc
+        raise_for_integrity_error(exc)
 
 
-@asynccontextmanager
-async def lifespan(_: FastAPI):
-    apply_migrations()
-    yield
+def create_app(database_path: Path | None = None) -> FastAPI:
+    resolved_db_path = resolve_db_path(database_path)
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI):
+        apply_migrations(resolved_db_path)
+        yield
+
+    app = FastAPI(title="Goal Manager", lifespan=lifespan)
+
+    def open_connection() -> sqlite3.Connection:
+        return get_connection(resolved_db_path)
+
+    @app.get("/health")
+    def healthcheck() -> dict[str, str]:
+        return {"status": "ok"}
 
 
-app = FastAPI(title="Goal Manager", lifespan=lifespan)
+    @app.post("/users", response_model=User, status_code=status.HTTP_201_CREATED)
+    def create_user(payload: UserCreate) -> User:
+        timestamp = datetime.now(timezone.utc).isoformat()
+        with open_connection() as connection:
+            cursor = write_user(
+                connection,
+                """
+                INSERT INTO users (name, email, created_at, updated_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (payload.name, payload.email, timestamp, timestamp),
+            )
+            connection.commit()
+            return row_to_user(get_user_or_404(connection, cursor.lastrowid))
 
 
-@app.get("/health")
-def healthcheck() -> dict[str, str]:
-    return {"status": "ok"}
+    @app.get("/users", response_model=list[User])
+    def list_users() -> list[User]:
+        with open_connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, name, email, created_at, updated_at
+                FROM users
+                ORDER BY id
+                """
+            ).fetchall()
+            return [row_to_user(row) for row in rows]
 
 
-@app.post("/users", response_model=User, status_code=status.HTTP_201_CREATED)
-def create_user(payload: UserCreate) -> User:
-    timestamp = datetime.now(timezone.utc).isoformat()
-    with get_connection() as connection:
-        cursor = write_user(
-            connection,
-            """
-            INSERT INTO users (name, email, created_at, updated_at)
-            VALUES (?, ?, ?, ?)
-            """,
-            (payload.name, payload.email, timestamp, timestamp),
-        )
-        return row_to_user(get_user_or_404(connection, cursor.lastrowid))
+    @app.get("/users/{user_id}", response_model=User)
+    def get_user(user_id: int) -> User:
+        with open_connection() as connection:
+            return row_to_user(get_user_or_404(connection, user_id))
 
 
-@app.get("/users", response_model=list[User])
-def list_users() -> list[User]:
-    with get_connection() as connection:
-        rows = connection.execute(
-            """
-            SELECT id, name, email, created_at, updated_at
-            FROM users
-            ORDER BY id
-            """
-        ).fetchall()
-        return [row_to_user(row) for row in rows]
+    @app.put("/users/{user_id}", response_model=User)
+    def update_user(user_id: int, payload: UserUpdate) -> User:
+        with open_connection() as connection:
+            cursor = write_user(
+                connection,
+                """
+                UPDATE users
+                SET name = ?, email = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    payload.name,
+                    payload.email,
+                    datetime.now(timezone.utc).isoformat(),
+                    user_id,
+                ),
+            )
+            if cursor.rowcount == 0:
+                connection.rollback()
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+                )
+            connection.commit()
+            return row_to_user(get_user_or_404(connection, user_id))
 
 
-@app.get("/users/{user_id}", response_model=User)
-def get_user(user_id: int) -> User:
-    with get_connection() as connection:
-        return row_to_user(get_user_or_404(connection, user_id))
+    @app.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+    def delete_user(user_id: int) -> None:
+        with open_connection() as connection:
+            cursor = connection.execute("DELETE FROM users WHERE id = ?", (user_id,))
+            if cursor.rowcount == 0:
+                connection.rollback()
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+                )
+            connection.commit()
+
+    return app
 
 
-@app.put("/users/{user_id}", response_model=User)
-def update_user(user_id: int, payload: UserUpdate) -> User:
-    with get_connection() as connection:
-        cursor = write_user(
-            connection,
-            """
-            UPDATE users
-            SET name = ?, email = ?, updated_at = ?
-            WHERE id = ?
-            """,
-            (payload.name, payload.email, datetime.now(timezone.utc).isoformat(), user_id),
-        )
-        if cursor.rowcount == 0:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-        return row_to_user(get_user_or_404(connection, user_id))
-
-
-@app.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_user(user_id: int) -> None:
-    with get_connection() as connection:
-        cursor = connection.execute("DELETE FROM users WHERE id = ?", (user_id,))
-        connection.commit()
-        if cursor.rowcount == 0:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+app = create_app()
 
 
 def main() -> None:
