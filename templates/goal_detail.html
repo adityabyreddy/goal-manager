@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}{{ goal.title }} · Goal Manager{% endblock %}
+{% block content %}
+<div class="gh-card">
+  <div class="gh-header px-3 py-2 fw-semibold d-flex justify-content-between align-items-center">
+    <span>{{ goal.title }}</span>
+    <span class="badge {% if goal_status == 'Overdue' %}text-bg-danger{% elif goal_status == 'In Progress' %}text-bg-success{% else %}text-bg-secondary{% endif %}">{{ goal_status }}</span>
+  </div>
+  <div class="p-3">
+    <p class="mb-2"><strong>User:</strong> {{ user.name }}</p>
+    <p class="mb-2"><strong>Priority:</strong> <span class="text-capitalize">{{ goal.priority }}</span></p>
+    <p class="mb-2"><strong>Dates:</strong> {{ goal.start_date }} → {{ goal.end_date }}</p>
+    <p class="mb-2"><strong>Labels:</strong> {{ goal.labels|join(', ') or 'None' }}</p>
+    <p class="mb-4"><strong>Description:</strong><br />{{ goal.description }}</p>
+    <a class="btn btn-primary" href="/ui/users/{{ user.id }}/goals/{{ goal.id }}/edit">Edit goal</a>
+    <a class="btn btn-link" href="/ui/dashboard">Back to dashboard</a>
+  </div>
+</div>
+{% endblock %}

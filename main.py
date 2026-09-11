@@ -6,7 +6,9 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, Form, HTTPException, Request, status
+from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, ValidationError, model_validator
 
 
@@ -14,6 +16,7 @@ BASE_DIR = Path(__file__).resolve().parent
 DEFAULT_DB_PATH = BASE_DIR / "goal_manager.db"
 CHANGELOG_PATH = BASE_DIR / "migrations" / "db.changelog.sql"
 CHANGELOG_FILENAME = "migrations/db.changelog.sql"
+TEMPLATES = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 
 class UserCreate(BaseModel):
@@ -187,6 +190,19 @@ def row_to_goal(row: sqlite3.Row) -> Goal:
         ) from exc
 
 
+def goal_status(goal: Goal) -> str:
+    today = date.today()
+    if today < goal.start_date:
+        return "Planned"
+    if today > goal.end_date:
+        return "Overdue"
+    return "In Progress"
+
+
+def parse_labels(labels_raw: str) -> list[str]:
+    return [label.strip() for label in labels_raw.split(",") if label.strip()]
+
+
 def get_user_or_404(connection: sqlite3.Connection, user_id: int) -> sqlite3.Row:
     row = connection.execute(
         """
@@ -261,6 +277,204 @@ def create_app(database_path: Optional[Path] = None) -> FastAPI:
     @app.get("/health")
     def healthcheck() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/ui/dashboard", response_class=HTMLResponse)
+    def dashboard(request: Request) -> HTMLResponse:
+        with open_connection() as connection:
+            users = connection.execute(
+                """
+                SELECT id, name, email, created_at, updated_at
+                FROM users
+                ORDER BY id
+                """
+            ).fetchall()
+            rows = connection.execute(
+                """
+                SELECT goals.id, goals.user_id, goals.title, goals.description, goals.labels,
+                       goals.start_date, goals.end_date, goals.priority, goals.created_at,
+                       goals.updated_at, users.name AS user_name
+                FROM goals
+                JOIN users ON users.id = goals.user_id
+                ORDER BY goals.id
+                """
+            ).fetchall()
+            goals = [
+                {
+                    "goal": row_to_goal(row),
+                    "user_name": row["user_name"],
+                }
+                for row in rows
+            ]
+            return TEMPLATES.TemplateResponse(
+                request,
+                "dashboard.html",
+                {
+                    "goals": goals,
+                    "users": [row_to_user(user_row) for user_row in users],
+                    "goal_status": goal_status,
+                },
+            )
+
+    @app.get("/ui/users/{user_id}/goals/new", response_class=HTMLResponse)
+    def create_goal_page(request: Request, user_id: int) -> HTMLResponse:
+        with open_connection() as connection:
+            user = row_to_user(get_user_or_404(connection, user_id))
+            return TEMPLATES.TemplateResponse(
+                request,
+                "goal_form.html",
+                {"user": user, "goal": None, "error": None},
+            )
+
+    @app.post("/ui/users/{user_id}/goals/new")
+    def create_goal_action(
+        request: Request,
+        user_id: int,
+        title: str = Form(...),
+        description: str = Form(...),
+        labels: str = Form(""),
+        start_date: str = Form(...),
+        end_date: str = Form(...),
+        priority: str = Form(...),
+    ):
+        with open_connection() as connection:
+            user = row_to_user(get_user_or_404(connection, user_id))
+            try:
+                payload = GoalCreate(
+                    title=title,
+                    description=description,
+                    labels=parse_labels(labels),
+                    start_date=start_date,
+                    end_date=end_date,
+                    priority=priority,
+                )
+            except ValidationError as exc:
+                return TEMPLATES.TemplateResponse(
+                    request,
+                    "goal_form.html",
+                    {
+                        "user": user,
+                        "goal": None,
+                        "error": str(exc.errors()[0]["msg"]),
+                    },
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                )
+
+            timestamp = datetime.now(timezone.utc).isoformat()
+            cursor = write_user(
+                connection,
+                """
+                INSERT INTO goals (
+                    user_id, title, description, labels, start_date, end_date, priority,
+                    created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    user_id,
+                    payload.title,
+                    payload.description,
+                    json.dumps(payload.labels),
+                    payload.start_date.isoformat(),
+                    payload.end_date.isoformat(),
+                    payload.priority,
+                    timestamp,
+                    timestamp,
+                ),
+            )
+            connection.commit()
+            return RedirectResponse(
+                url=f"/ui/users/{user_id}/goals/{cursor.lastrowid}",
+                status_code=status.HTTP_303_SEE_OTHER,
+            )
+
+    @app.get("/ui/users/{user_id}/goals/{goal_id}", response_class=HTMLResponse)
+    def view_goal_page(request: Request, user_id: int, goal_id: int) -> HTMLResponse:
+        with open_connection() as connection:
+            user = row_to_user(get_user_or_404(connection, user_id))
+            goal = row_to_goal(get_goal_or_404(connection, user_id, goal_id))
+            return TEMPLATES.TemplateResponse(
+                request,
+                "goal_detail.html",
+                {"user": user, "goal": goal, "goal_status": goal_status(goal)},
+            )
+
+    @app.get("/ui/users/{user_id}/goals/{goal_id}/edit", response_class=HTMLResponse)
+    def update_goal_page(request: Request, user_id: int, goal_id: int) -> HTMLResponse:
+        with open_connection() as connection:
+            user = row_to_user(get_user_or_404(connection, user_id))
+            goal = row_to_goal(get_goal_or_404(connection, user_id, goal_id))
+            return TEMPLATES.TemplateResponse(
+                request,
+                "goal_form.html",
+                {"user": user, "goal": goal, "error": None},
+            )
+
+    @app.post("/ui/users/{user_id}/goals/{goal_id}/edit")
+    def update_goal_action(
+        request: Request,
+        user_id: int,
+        goal_id: int,
+        title: str = Form(...),
+        description: str = Form(...),
+        labels: str = Form(""),
+        start_date: str = Form(...),
+        end_date: str = Form(...),
+        priority: str = Form(...),
+    ):
+        with open_connection() as connection:
+            user = row_to_user(get_user_or_404(connection, user_id))
+            existing_goal = row_to_goal(get_goal_or_404(connection, user_id, goal_id))
+            try:
+                payload = GoalUpdate(
+                    title=title,
+                    description=description,
+                    labels=parse_labels(labels),
+                    start_date=start_date,
+                    end_date=end_date,
+                    priority=priority,
+                )
+            except ValidationError as exc:
+                return TEMPLATES.TemplateResponse(
+                    request,
+                    "goal_form.html",
+                    {
+                        "user": user,
+                        "goal": existing_goal,
+                        "error": str(exc.errors()[0]["msg"]),
+                    },
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                )
+
+            cursor = write_user(
+                connection,
+                """
+                UPDATE goals
+                SET title = ?, description = ?, labels = ?, start_date = ?, end_date = ?,
+                    priority = ?, updated_at = ?
+                WHERE id = ? AND user_id = ?
+                """,
+                (
+                    payload.title,
+                    payload.description,
+                    json.dumps(payload.labels),
+                    payload.start_date.isoformat(),
+                    payload.end_date.isoformat(),
+                    payload.priority,
+                    datetime.now(timezone.utc).isoformat(),
+                    goal_id,
+                    user_id,
+                ),
+            )
+            if cursor.rowcount == 0:
+                connection.rollback()
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND, detail="Goal not found"
+                )
+            connection.commit()
+            return RedirectResponse(
+                url=f"/ui/users/{user_id}/goals/{goal_id}",
+                status_code=status.HTTP_303_SEE_OTHER,
+            )
 
 
     @app.post("/users", response_model=User, status_code=status.HTTP_201_CREATED)
