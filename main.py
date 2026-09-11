@@ -371,11 +371,13 @@ def create_app(database_path: Optional[Path] = None) -> FastAPI:
     @app.get("/users/{user_id}/goals/{goal_id}", response_model=Goal)
     def get_goal(user_id: int, goal_id: int) -> Goal:
         with open_connection() as connection:
+            get_user_or_404(connection, user_id)
             return row_to_goal(get_goal_or_404(connection, user_id, goal_id))
 
     @app.put("/users/{user_id}/goals/{goal_id}", response_model=Goal)
     def update_goal(user_id: int, goal_id: int, payload: GoalUpdate) -> Goal:
         with open_connection() as connection:
+            get_user_or_404(connection, user_id)
             cursor = write_user(
                 connection,
                 """
@@ -407,6 +409,7 @@ def create_app(database_path: Optional[Path] = None) -> FastAPI:
     @app.delete("/users/{user_id}/goals/{goal_id}", status_code=status.HTTP_204_NO_CONTENT)
     def delete_goal(user_id: int, goal_id: int) -> None:
         with open_connection() as connection:
+            get_user_or_404(connection, user_id)
             cursor = connection.execute(
                 "DELETE FROM goals WHERE id = ? AND user_id = ?",
                 (goal_id, user_id),

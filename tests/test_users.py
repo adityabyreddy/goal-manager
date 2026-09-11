@@ -194,6 +194,11 @@ class UserApiTests(unittest.TestCase):
         self.assertEqual(missing.json(), {"detail": "Goal not found"})
 
     def test_goal_endpoints_require_existing_user(self) -> None:
+        owner = self.client.post(
+            "/users", json={"name": "Present User", "email": "present@example.com"}
+        )
+        self.assertEqual(owner.status_code, 201)
+
         payload = {
             "title": "Missing parent",
             "description": "Should fail",
@@ -210,6 +215,22 @@ class UserApiTests(unittest.TestCase):
         listed = self.client.get("/users/999/goals")
         self.assertEqual(listed.status_code, 404)
         self.assertEqual(listed.json(), {"detail": "User not found"})
+
+        goal = self.client.post(f"/users/{owner.json()['id']}/goals", json=payload)
+        self.assertEqual(goal.status_code, 201)
+        goal_id = goal.json()["id"]
+
+        fetched = self.client.get(f"/users/999/goals/{goal_id}")
+        self.assertEqual(fetched.status_code, 404)
+        self.assertEqual(fetched.json(), {"detail": "User not found"})
+
+        updated = self.client.put(f"/users/999/goals/{goal_id}", json=payload)
+        self.assertEqual(updated.status_code, 404)
+        self.assertEqual(updated.json(), {"detail": "User not found"})
+
+        deleted = self.client.delete(f"/users/999/goals/{goal_id}")
+        self.assertEqual(deleted.status_code, 404)
+        self.assertEqual(deleted.json(), {"detail": "User not found"})
 
     def test_update_and_delete_goal_return_404_for_missing_or_wrong_user(self) -> None:
         owner = self.client.post("/users", json={"name": "Owner", "email": "owner2@example.com"})
