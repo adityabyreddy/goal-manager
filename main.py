@@ -77,54 +77,66 @@ def parse_changesets(changelog_path: Path) -> list[tuple[str, str, str]]:
     return changesets
 
 
+def execute_changeset(connection: sqlite3.Connection, sql: str) -> None:
+    for statement in sql.split(";"):
+        normalized_statement = statement.strip()
+        if normalized_statement:
+            connection.execute(normalized_statement)
+
+
 def apply_migrations(database_path: Path) -> None:
     with get_connection(database_path) as connection:
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS databasechangelog (
-                id TEXT NOT NULL,
-                author TEXT NOT NULL,
-                filename TEXT NOT NULL,
-                dateexecuted TEXT NOT NULL,
-                orderexecuted INTEGER NOT NULL,
-                exectype TEXT NOT NULL,
-                PRIMARY KEY (id, author, filename)
-            )
-            """
-        )
-        applied_changes = {
-            (row["author"], row["id"], row["filename"])
-            for row in connection.execute(
-                "SELECT author, id, filename FROM databasechangelog"
-            )
-        }
-        next_order = connection.execute(
-            "SELECT COALESCE(MAX(orderexecuted), 0) FROM databasechangelog"
-        ).fetchone()[0]
-
-        for author, change_id, sql in parse_changesets(CHANGELOG_PATH):
-            key = (author, change_id, CHANGELOG_FILENAME)
-            if key in applied_changes or not sql:
-                continue
-
-            connection.executescript(sql)
-            next_order += 1
+        try:
+            connection.execute("BEGIN IMMEDIATE")
             connection.execute(
                 """
-                INSERT INTO databasechangelog (
-                    id, author, filename, dateexecuted, orderexecuted, exectype
-                ) VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    change_id,
-                    author,
-                    CHANGELOG_FILENAME,
-                    datetime.now(timezone.utc).isoformat(),
-                    next_order,
-                    "EXECUTED",
-                ),
+                CREATE TABLE IF NOT EXISTS databasechangelog (
+                    id TEXT NOT NULL,
+                    author TEXT NOT NULL,
+                    filename TEXT NOT NULL,
+                    dateexecuted TEXT NOT NULL,
+                    orderexecuted INTEGER NOT NULL,
+                    exectype TEXT NOT NULL,
+                    PRIMARY KEY (id, author, filename)
+                )
+                """
             )
-        connection.commit()
+            applied_changes = {
+                (row["author"], row["id"], row["filename"])
+                for row in connection.execute(
+                    "SELECT author, id, filename FROM databasechangelog"
+                )
+            }
+            next_order = connection.execute(
+                "SELECT COALESCE(MAX(orderexecuted), 0) FROM databasechangelog"
+            ).fetchone()[0]
+
+            for author, change_id, sql in parse_changesets(CHANGELOG_PATH):
+                key = (author, change_id, CHANGELOG_FILENAME)
+                if key in applied_changes or not sql:
+                    continue
+
+                execute_changeset(connection, sql)
+                next_order += 1
+                connection.execute(
+                    """
+                    INSERT INTO databasechangelog (
+                        id, author, filename, dateexecuted, orderexecuted, exectype
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        change_id,
+                        author,
+                        CHANGELOG_FILENAME,
+                        datetime.now(timezone.utc).isoformat(),
+                        next_order,
+                        "EXECUTED",
+                    ),
+                )
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
 
 
 def row_to_user(row: sqlite3.Row) -> User:
@@ -223,7 +235,6 @@ def create_app(database_path: Optional[Path] = None) -> FastAPI:
     @app.put("/users/{user_id}", response_model=User)
     def update_user(user_id: int, payload: UserUpdate) -> User:
         with open_connection() as connection:
-            get_user_or_404(connection, user_id)
             cursor = write_user(
                 connection,
                 """
