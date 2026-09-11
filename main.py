@@ -208,8 +208,7 @@ def get_user(user_id: int) -> User:
 @app.put("/users/{user_id}", response_model=User)
 def update_user(user_id: int, payload: UserUpdate) -> User:
     with get_connection() as connection:
-        get_user_or_404(connection, user_id)
-        write_user(
+        cursor = write_user(
             connection,
             """
             UPDATE users
@@ -218,15 +217,18 @@ def update_user(user_id: int, payload: UserUpdate) -> User:
             """,
             (payload.name, payload.email, datetime.now(timezone.utc).isoformat(), user_id),
         )
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
         return row_to_user(get_user_or_404(connection, user_id))
 
 
 @app.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_user(user_id: int) -> None:
     with get_connection() as connection:
-        get_user_or_404(connection, user_id)
-        connection.execute("DELETE FROM users WHERE id = ?", (user_id,))
+        cursor = connection.execute("DELETE FROM users WHERE id = ?", (user_id,))
         connection.commit()
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
 
 def main() -> None:

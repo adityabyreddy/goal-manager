@@ -91,6 +91,18 @@ class UserApiTests(unittest.TestCase):
             duplicate_update.json(), {"detail": "A user with this email already exists"}
         )
 
+    def test_missing_user_update_and_delete_return_404(self) -> None:
+        missing_update = self.client.put(
+            "/users/999",
+            json={"name": "Missing User", "email": "missing@example.com"},
+        )
+        self.assertEqual(missing_update.status_code, 404)
+        self.assertEqual(missing_update.json(), {"detail": "User not found"})
+
+        missing_delete = self.client.delete("/users/999")
+        self.assertEqual(missing_delete.status_code, 404)
+        self.assertEqual(missing_delete.json(), {"detail": "User not found"})
+
 
 if __name__ == "__main__":
     unittest.main()
