@@ -270,6 +270,71 @@ class UserApiTests(unittest.TestCase):
         self.assertEqual(missing_delete.status_code, 404)
         self.assertEqual(missing_delete.json(), {"detail": "Goal not found"})
 
+    def test_goal_rejects_invalid_date_range(self) -> None:
+        owner = self.client.post(
+            "/users", json={"name": "Date Owner", "email": "dates@example.com"}
+        )
+        self.assertEqual(owner.status_code, 201)
+
+        payload = {
+            "title": "Invalid dates",
+            "description": "End date is before start date",
+            "labels": ["invalid"],
+            "start_date": "2026-09-12",
+            "end_date": "2026-09-11",
+            "priority": "low",
+        }
+
+        created = self.client.post(f"/users/{owner.json()['id']}/goals", json=payload)
+        self.assertEqual(created.status_code, 422)
+
+        valid = self.client.post(
+            f"/users/{owner.json()['id']}/goals",
+            json={**payload, "end_date": "2026-09-12"},
+        )
+        self.assertEqual(valid.status_code, 201)
+
+        updated = self.client.put(
+            f"/users/{owner.json()['id']}/goals/{valid.json()['id']}",
+            json=payload,
+        )
+        self.assertEqual(updated.status_code, 422)
+
+    def test_get_goal_returns_controlled_error_for_malformed_labels(self) -> None:
+        owner = self.client.post(
+            "/users", json={"name": "Label Owner", "email": "labels@example.com"}
+        )
+        self.assertEqual(owner.status_code, 201)
+        user_id = owner.json()["id"]
+
+        with main.get_connection(Path(self.db_path)) as connection:
+            timestamp = "2026-09-11T00:00:00+00:00"
+            connection.execute(
+                """
+                INSERT INTO goals (
+                    user_id, title, description, labels, start_date, end_date, priority,
+                    created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    user_id,
+                    "Broken labels",
+                    "Stored incorrectly",
+                    "not-json",
+                    "2026-09-11",
+                    "2026-09-12",
+                    "low",
+                    timestamp,
+                    timestamp,
+                ),
+            )
+            connection.commit()
+
+        response = self.client.get(f"/users/{user_id}/goals/1")
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.json(), {"detail": "Stored goal data is invalid"})
+
 
 if __name__ == "__main__":
     unittest.main()

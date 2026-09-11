@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError, model_validator
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -39,6 +39,12 @@ class GoalPayload(BaseModel):
     start_date: date
     end_date: date
     priority: str
+
+    @model_validator(mode="after")
+    def validate_date_range(self) -> "GoalPayload":
+        if self.end_date < self.start_date:
+            raise ValueError("end_date must be on or after start_date")
+        return self
 
 
 class GoalCreate(GoalPayload):
@@ -171,8 +177,14 @@ def row_to_user(row: sqlite3.Row) -> User:
 
 def row_to_goal(row: sqlite3.Row) -> Goal:
     goal = dict(row)
-    goal["labels"] = json.loads(goal["labels"])
-    return Goal(**goal)
+    try:
+        goal["labels"] = json.loads(goal["labels"])
+        return Goal(**goal)
+    except (TypeError, ValidationError, json.JSONDecodeError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Stored goal data is invalid",
+        ) from exc
 
 
 def get_user_or_404(connection: sqlite3.Connection, user_id: int) -> sqlite3.Row:
