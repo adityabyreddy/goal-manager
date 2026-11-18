@@ -11,9 +11,12 @@
       crossorigin="anonymous"
     />
     <style>
-      body { background: #f6f8fa; color: #24292f; }
+      html, body { height: 100%; }
+      body { background: #f6f8fa; color: #24292f; display: flex; flex-direction: column; min-height: 100vh; }
       .gh-card { background: #fff; border: 1px solid #d0d7de; border-radius: 6px; }
       .gh-header { background: #f6f8fa; border-bottom: 1px solid #d0d7de; }
+      main.container { flex: 1 0 auto; }
+      .gh-footer { flex-shrink: 0; background: #f6f8fa; border-top: 1px solid #d0d7de; color: #57606a; }
     </style>
   </head>
   <body>
@@ -25,5 +28,10 @@
     <main class="container py-4">
       {% block content %}{% endblock %}
     </main>
+    <footer class="gh-footer text-center py-3 mt-auto">
+      <div class="container">
+        <small>Goal Management Platform &copy; 2026. All rights reserved.</small>
+      </div>
+    </footer>
   </body>
 </html>
